@@ -8,10 +8,25 @@ const User = new Schema({
 });
 
 // create new User document
+// User.statics.create = function(username, password) {
+//   const user = new this({
+//     username,
+//     password
+//   });
+// return the Promise
+//   return user.save();
+// };
+
+// create new User document version 2
 User.statics.create = function(username, password) {
+  const encrypted = crypto
+    .createHmac("sha1", config.secret)
+    .update(password)
+    .digest("base64");
+
   const user = new this({
     username,
-    password
+    password: encrypted
   });
 
   // return the Promise
@@ -25,9 +40,19 @@ User.statics.findOneByUsername = function(username) {
   }).exec();
 };
 
-// verify the password of the User documment
+// // verify the password of the User documment
+// User.methods.verify = function(password) {
+//   return this.password === password;
+// };
+
+// verify the password of the User documment version 2
 User.methods.verify = function(password) {
-  return this.password === password;
+  const encrypted = crypto
+    .createHmac("sha1", config.secret)
+    .update(password)
+    .digest("base64");
+
+  return this.password === encrypted;
 };
 
 User.methods.assignAdmin = function() {

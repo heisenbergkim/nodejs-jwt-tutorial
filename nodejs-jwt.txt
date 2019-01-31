@@ -1,0 +1,222 @@
+[ JWT : JSON Web Token ]
+서버 기반 인증의 문제점
+세션
+유저가 인증을 할 때, 서버는 이 기록을 서버에 저장을 해야합니다. 이를 세션 이라고 부릅니다. 대부분의 경우엔 메모리에 이를 저장하는데, 로그인 중인 유저의 수가 늘어난다면 
+어떻게될까요? 서버의 램이 과부화가 되겠지요? 이를 피하기 위해서, 세션을 데이터베이스에 시스템에 저장하는 방식도 있지만, 이 또한 유저의 수가 많으면 
+데이터베이스의 성능에 무리를 줄 수 있습니다.
+
+확장성
+세션을 사용하면 서버를 확장하는것이 어려워집니다. 여기서 서버의 확장이란, 단순히 서버의 사양을 업그레이드 하는것이 아니라, 더 많은 트래픽을 감당하기 위하여 여러개의 
+프로세스를 돌리거나, 여러대의 서버 컴퓨터를 추가 하는것을 의미합니다. 세션을 사용하면서 분산된 시스템을 설계하는건 불가능한것은 아니지만 과정이 매우 복잡해집니다.
+
+CORS (Cross-Origin Resource Sharing)
+
+웹 어플리케이션에서 세션을 관리 할 때 자주 사용되는 쿠키는 단일 도메인 및 서브 도메인에서만 작동하도록 설계되어있습니다. 따라서 쿠키를 여러 도메인에서 관리하는것은 
+좀 번거롭습니다.
+
+토큰 기반 시스템의 구현 방식은 시스템마다 크고작은 차이가 있겠지만, 대략적으로 보면 다음과 같습니다:
+
+1.유저가 아이디와 비밀번호로 로그인을 합니다
+2.서버측에서 해당 계정정보를 검증합니다.
+3.계정정보가 정확하다면, 서버측에서 유저에게 signed 토큰을 발급해줍니다.
+여기서 signed 의 의미는 해당 토큰이 서버에서 정상적으로 발급된 토큰임을 증명하는 signature 를 지니고 있다는 것입니다
+4.클라이언트 측에서 전달받은 토큰을 저장해두고, 서버에 요청을 할 때 마다, 해당 토큰을 함께 서버에 전달합니다.
+5.서버는 토큰을 검증하고, 요청에 응답합니다.
+
+
+**웹서버에서 토큰을 서버에 전달 할 때에는, HTTP 요청의 헤더에 토큰값을 포함시켜서 전달합니다.
+
+자가 수용적 (self-contained) 입니다
+JWT 는 필요한 모든 정보를 자체적으로 지니고 있습니다. JWT 시스템에서 발급된 토큰은, 토큰에 대한 기본정보, 
+전달 할 정보 (로그인시스템에서는 유저 정보를 나타내겠죠?) 그리고 토큰이 검증됐다는것을 증명해주는 signature 를 포함하고있습니다.
+
+WT 의 생김새
+JWT 는 . 을 구분자로 3가지의 문자열로 되어있습니다. 구조는 다음과 같이 이루어져있습니다:
+
+(__header__).(__payload__).(__signature__)
+
+1)헤더 (Header)
+Header 는 두가지의 정보를 지니고 있습니다.
+
+typ: 토큰의 타입을 지정합니다. 바로 JWT 이죠.
+alg: 해싱 알고리즘을 지정합니다.  해싱 알고리즘으로는 보통 HMAC SHA256 혹은 RSA 가 사용되며, 이 알고리즘은, 토큰을 검증 할 때 사용되는 signature 부분에서 사용됩니다.
+
+한번, 이 예제를 살펴보세요 :
+
+{
+  "typ": "JWT",
+  "alg": "HS256"
+}
+
+const payload = {
+    "iss": "velopert.com",
+    "exp": "1485270000000",
+    "https://velopert.com/jwt_claims/is_admin": true,
+    "userId": "11028373727102",
+    "username": "velopert"
+};
+
+// encode to base64
+const encodedPayload = new Buffer(JSON.stringify(payload))
+                            .toString('base64')
+                            .replace('=', '');
+
+console.log('payload: ',encodedPayload);
+
+/* result
+payload:  eyJpc3MiOiJ2ZWxvcGVydC5jb20iLCJleHAiOiIxNDg1MjcwMDAwMDAwIiwiaHR0cHM6Ly92ZWxvcGVydC5jb20vand0X2NsYWltcy9pc19hZG
+1pbiI6dHJ1ZSwidXNlcklkIjoiMTEwMjgzNzM3MjcxMDIiLCJ1c2VybmFtZSI6InZlbG9wZXJ0In0
+*/
+
+const crypto = require('crypto');
+const signature = crypto.createHmac('sha256', 'secret')
+             .update(encodedHeader + '.' + encodedPayload)
+             .digest('base64')
+             .replace('=', '');
+
+console.log('signature: ',signature);
+
+**주의: base64로 인코딩을 할 때 dA== 처럼 뒤에 = 문자가 한두개 붙을 때가 있습니다. 이 문자는 base64 인코딩의 padding 문자라고 부릅니다.
+JWT 토큰은 가끔 URL 의 파라미터로 전달 될 때도 있는데요, 이 = 문자는, url-safe 하지 않으므로, 제거되어야 합니다. 패딩이 한개 생길 때도 있고, 
+두개 생길 때도 있는데, 전부 지워(제거해줘도 디코딩 할 때 전혀 문제가 되지 않습니다)
+
+**create 메소드는 새 유저를 생성합니다. 원래는 이 메소드처럼 비밀번호를 그대로 문자열 형태로 저장하면 보안적으로 매우 나쁩니다. 일단 지금은 배우는 과정이니 간단하게 문자열로 저장을 하지만, 포스트의 후반부에서는 비밀번호를 해쉬하여 저장하도록 하겠습니다
+findOneByUsername 메소드는 username 값을 사용하여 유저를 찾습니다
+verify 메소드는 비밀번호가 정확한지 확인을 합니다. 지금은 그냥 === 를 사용해서 비교 후 결과를 반환하지만 포스트 후반부에서는 해쉬를 확인하여 결과를 반환하겠습니다
+assignAdmin 메소드는 유저를 관리자 계정으로 설정해줍니다. 저희 예제 프로젝트에서는, 가장 처음으로 가입한 사람과, 관리자가 나중에 API 를 사용하여 지정한사람이 관리자 권한을 부여 받습니다.
+
+/*/MongoDB 호스팅 :Database-as-a-Service for MongoDB
+https://mlab.com/
+
+module.exports = {
+    'secret': 'SeCrEtKeYfOrHaShInG',
+    'mongodbUri': 'mongodb://ericnjin:yykim000@ds145043.mlab.com:45043/jwttutorial'
+}
+
+
+======================================================================
+회원가입 API 준비하기
+auth 라우터부터 작성을 해볼까요?  회원가입의 라우트는 /api/auth/register 로 설정하도록 하겠습니다.
+
+routes/api/auth/auth.controller.js 파일을 생성하여 다음 코드를 작성하세요.
+
+/*/ routes/api/auth/auth.controller.js
+/*
+    POST /api/auth/register
+    {
+        username,
+        password
+    }
+*/
+exports.register = (req, res) => {
+    res.send('this router is working')
+}
+우리는 auth 라는 라우터를 정의했습니다.
+
+이제 상위 폴더로 올라가서 api 라는 라우터를 정의 한 뒤, 해당 라우터에서 /auth 로 요청이 
+들어오면 위 라우터로 연결시켜줍시다.
+/*/ routes/api/index.js
+
+const router = require('express').Router()
+const auth = require('./auth')
+
+router.use('/auth', auth)   <== /auth 로 요청이들어오면
+
+module.exports = router
+
+
+마지막으로, app.js 파일을 다시 열어서 /api/ 경로로 요청이 들어오면 위 라우터로 연결시켜줍시다.
+
+/*/....app.js
+
+// (...)
+
+// index page, just for testing
+app.get('/', (req, res) => {
+    res.send('Hello JWT')
+})
+
+// configure api router
+app.use('/api', require('./routes/api'))    <==/api/ 경로로 요청이 들어오면
+
+// open the server
+app.listen(port, () => {
+    console.log(`Express is running on port ${port}`)
+})
+
+// (...)
+
+====================================
+로그인 API 기능 구현하기
+자, 이제 login 함수의 기능을 구현해줄 차례입니다. jwt 토큰을 발급하려면, 강좌의 시작부분에서 
+npm 을 통해 설치한 jsonwebtoken 모듈을 사용해야합니다. 우선, 컨트롤러 파일의 상단에 해당 모듈을 
+불러와주세요
+
+routes/api/auth/auth.controller.js
+
+const jwt = require('jsonwebtoken')
+const User = require('../../../models/user')
+
+// (...)
+
+Synchronous Sign with default (HMAC SHA256)
+
+var jwt = require('jsonwebtoken');
+var token = jwt.sign({ foo: 'bar' }, 'shhhhh');
+Synchronous Sign with RSA SHA256
+
+// sign with RSA SHA256
+var cert = fs.readFileSync('private.key');
+var token = jwt.sign({ foo: 'bar' }, cert, { algorithm: 'RS256'});
+Sign asynchronously
+
+jwt.sign({ foo: 'bar' }, cert, { algorithm: 'RS256' }, function(err, token) {
+  console.log(token);
+});
+
+#7 JWT 검증 구현
+유저가 JWT 값을 헤더에 x-access-token 으로 설정하거나, url parameter 로 서버로 전달하면, 서버측에서 
+그 토큰을 가지고 검증 한 후 현재 계정의 상태를 보여주는 기능을 구현해보겠습니다.
+
+계정정보 체킹 라우트는 GET /api/auth/check 로 설정하겠습니다.
+
+/////////////////////////////////////////////////////
+x-access-token 헤더값으로 지정하고 테스트  :  x-access-token asdfsfefevxgfxgxg
+혹은  url-encoded 쿼리 값이용? /api/auth/check?Token=asdfsfefevxgfxgxg
+
+
+#8 JWT 검증 미들웨어 구현
+어느정도 감을 잡았죠? 그런데, 토큰을 필요로하는 모든 요청에 토큰검증 코드를 넣기엔 너무나 자주 
+반복되잖아요? 이 작업을 더 간단하게 하는 방법이 있습니다. 바로 미들웨어죠.
+
+그러면, auth.controller.js 안에 있는 check 함수를 이렇게 간단하게 수정하면됩니다. 
+만약에 토큰 검증에 실패 될 땐, 미들웨어에서 next() 함수가 실행되지 않기때문에, 
+이 check 함수 내부에서는 토큰이 검증실패했을때를 고려하지 않아도 된답니다.
+// process the promise
+    p.then((decoded)=>{
+        req.decoded = decoded
+        next()
+    }).catch(onError)
+
+
+/routes/api/auth/auth.controller.js
+
+// (...)
+/*
+    GET /api/auth/check
+*/
+
+exports.check = (req, res) => {
+    res.json({
+        success: true,
+        info: req.decoded
+    })
+}
+
+#10 비밀번호를 암호화하여 저장하기
+비밀번호를 데이터베이스에 저장 할때, plain text 그대로 저장하는것은 매우 위험합니다.  
+따라서 우리는 HMAC-SHA1 으로 비밀번호를 해쉬하여 저장하도록 하겠습니다.
+
+그러기 위해선, 유저 모델에서 node.js 내장 모듈인 crypto 를 불러와서 사용하면 됩니다. 
+해싱을 할 때 사용 할 비밀키는 편의상 config 파일을 다시 불러와서 jwt 에서 사용하는 비밀키와 
+동일하게 사용하겠습니다.
